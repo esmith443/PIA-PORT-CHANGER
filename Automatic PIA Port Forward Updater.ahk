@@ -1,18 +1,21 @@
+; ============================================================================
+; PIA VPN Port Forwarder for qBittorrent
+; Automatically syncs PIA VPN port forwarding with qBittorrent
+; ============================================================================
+
 #SingleInstance Force
 SetWorkingDir %A_ScriptDir%
 
-; ============================================================================
-; CONFIGURATION
-; ============================================================================
+; Global variables
 global portPIA := ""
 global portQbit := ""
-global checkInterval := 3600000  ; 1 hour in milliseconds (3600000)
-global autoUpdate := true        ; Set to false to require manual confirmation
-
-; Program paths (loaded from settings.ini or defaults)
+global checkInterval := 3600000
+global autoUpdate := true
 global piaPath := ""
 global qbitPath := ""
-global settingsFile := A_ScriptDir . "\settings.ini"
+global logPath := ""
+global settingsDir := A_AppData . "\PIA-Port-Forwarder"
+global settingsFile := settingsDir . "\settings.ini"
 
 ; Initialize and start
 LoadSettings()
@@ -21,77 +24,71 @@ CheckAndUpdatePorts()
 SetTimer, CheckAndUpdatePorts, %checkInterval%
 return
 
-; ============================================================================
-; FUNCTIONS
-; ============================================================================
-
 LoadSettings() {
-    global piaPath, qbitPath, settingsFile, checkInterval, autoUpdate
+    global piaPath, qbitPath, logPath, settingsFile, settingsDir, checkInterval, autoUpdate
 
-    ; Load PIA path (default if not found)
+    if (!FileExist(settingsDir)) {
+        FileCreateDir, %settingsDir%
+    }
+
     IniRead, piaPath, %settingsFile%, Paths, PIAPath, C:\Program Files\Private Internet Access\piactl.exe
-
-    ; Load qBittorrent path (default if not found)
     IniRead, qbitPath, %settingsFile%, Paths, QbitPath, C:\Program Files\qBittorrent\qbittorrent.exe
 
-    ; Load check interval (default 1 hour)
-    IniRead, checkInterval, %settingsFile%, Settings, CheckInterval, 3600000
+    defaultLogPath := settingsDir . "\port_changes.log"
+    IniRead, logPath, %settingsFile%, Paths, LogPath, %defaultLogPath%
 
-    ; Load auto-update setting
+    SplitPath, logPath, , logDir
+    if (!FileExist(logDir)) {
+        FileCreateDir, %logDir%
+    }
+
+    IniRead, checkInterval, %settingsFile%, Settings, CheckInterval, 3600000
     IniRead, autoUpdate, %settingsFile%, Settings, AutoUpdate, 1
     autoUpdate := (autoUpdate = 1)
 }
 
 SaveSettings() {
-    global piaPath, qbitPath, settingsFile, checkInterval, autoUpdate
+    global piaPath, qbitPath, logPath, settingsFile, checkInterval, autoUpdate
 
-    ; Save paths
     IniWrite, %piaPath%, %settingsFile%, Paths, PIAPath
     IniWrite, %qbitPath%, %settingsFile%, Paths, QbitPath
-
-    ; Save settings
+    IniWrite, %logPath%, %settingsFile%, Paths, LogPath
     IniWrite, %checkInterval%, %settingsFile%, Settings, CheckInterval
     autoUpdateValue := autoUpdate ? 1 : 0
     IniWrite, %autoUpdateValue%, %settingsFile%, Settings, AutoUpdate
 }
 
 ShowSettingsGUI() {
-    global piaPath, qbitPath, settingsFile, checkInterval
-    global GuiPiaPath, GuiQbitPath, GuiInterval, GuiIntervalUpDown
+    global piaPath, qbitPath, logPath, settingsFile, checkInterval
+    global GuiPiaPath, GuiQbitPath, GuiLogPath, GuiInterval, GuiIntervalUpDown
 
-    ; Convert interval to minutes for display
     intervalMinutes := checkInterval / 60000
 
-    ; Create GUI
     Gui, Settings:New, , Port Forwarder Settings
     Gui, Settings:Font, s10
 
-    ; PIA Path
     Gui, Settings:Add, Text, x10 y10 w400, Private Internet Access (piactl.exe) Path:
     Gui, Settings:Add, Edit, x10 y30 w400 h25 vGuiPiaPath, %piaPath%
     Gui, Settings:Add, Button, x415 y30 w80 h25 gBrowsePIA, Browse...
 
-    ; qBittorrent Path
     Gui, Settings:Add, Text, x10 y70 w400, qBittorrent Executable Path:
     Gui, Settings:Add, Edit, x10 y90 w400 h25 vGuiQbitPath, %qbitPath%
     Gui, Settings:Add, Button, x415 y90 w80 h25 gBrowseQbit, Browse...
 
-    ; Check Interval
-    Gui, Settings:Add, Text, x10 y130 w200, Check Interval (minutes):
-    Gui, Settings:Add, Edit, x220 y130 w100 h25 vGuiInterval Number, %intervalMinutes%
+    Gui, Settings:Add, Text, x10 y130 w400, Log File Path:
+    Gui, Settings:Add, Edit, x10 y150 w400 h25 vGuiLogPath, %logPath%
+    Gui, Settings:Add, Button, x415 y150 w80 h25 gBrowseLog, Browse...
+
+    Gui, Settings:Add, Text, x10 y190 w200, Check Interval (minutes):
+    Gui, Settings:Add, Edit, x220 y190 w100 h25 vGuiInterval Number, %intervalMinutes%
     Gui, Settings:Add, UpDown, vGuiIntervalUpDown Range1-1440, %intervalMinutes%
-    Gui, Settings:Add, Text, x330 y135 w165 cGray, (1 min - 24 hours)
+    Gui, Settings:Add, Text, x330 y195 w165 cGray, (1 min - 24 hours)
 
-    ; Info text
-    Gui, Settings:Add, Text, x10 y165 w485 +Wrap cGray, Note: Changes will be saved to settings.ini. Restart may be required for interval changes to take effect.
-
-    ; Buttons
-    Gui, Settings:Add, Button, x10 y210 w100 h30 gSaveSettingsGUI Default, Save
-    Gui, Settings:Add, Button, x120 y210 w100 h30 gCancelSettingsGUI, Cancel
-    Gui, Settings:Add, Button, x230 y210 w100 h30 gTestPaths, Test Paths
-
-    ; Show GUI
-    Gui, Settings:Show, w510 h255
+    Gui, Settings:Add, Text, x10 y225 w485 +Wrap cGray, Note: Changes will be saved to settings.ini. Restart may be required for interval changes to take effect.
+    Gui, Settings:Add, Button, x10 y270 w100 h30 gSaveSettingsGUI Default, Save
+    Gui, Settings:Add, Button, x120 y270 w100 h30 gCancelSettingsGUI, Cancel
+    Gui, Settings:Add, Button, x230 y270 w100 h30 gTestPaths, Test Paths
+    Gui, Settings:Show, w510 h315
     return
 
     TestPaths:
@@ -158,10 +155,17 @@ ShowSettingsGUI() {
         }
     return
 
+    BrowseLog:
+        Gui, Settings:Submit, NoHide
+        FileSelectFile, SelectedFile, S16, %GuiLogPath%, Select log file location, Log Files (*.log)
+        if (SelectedFile != "") {
+            GuiControl, Settings:, GuiLogPath, %SelectedFile%
+        }
+    return
+
     SaveSettingsGUI:
         Gui, Settings:Submit
 
-        ; Validate paths exist
         if (!FileExist(GuiPiaPath)) {
             MsgBox, 48, Invalid Path, PIA path does not exist:`n%GuiPiaPath%
             return
@@ -171,17 +175,24 @@ ShowSettingsGUI() {
             return
         }
 
-        ; Validate interval
         if (GuiInterval < 1 || GuiInterval > 1440) {
             MsgBox, 48, Invalid Interval, Check interval must be between 1 and 1440 minutes (24 hours)
             return
         }
 
-        ; Update global variables
+        SplitPath, GuiLogPath, , logDir
+        if (logDir != "" && !FileExist(logDir)) {
+            FileCreateDir, %logDir%
+            if (ErrorLevel) {
+                MsgBox, 48, Invalid Path, Could not create log directory:`n%logDir%
+                return
+            }
+        }
+
         piaPath := GuiPiaPath
         qbitPath := GuiQbitPath
+        logPath := GuiLogPath
 
-        ; Update check interval and restart timer if changed
         newInterval := GuiInterval * 60000
         if (newInterval != checkInterval) {
             checkInterval := newInterval
@@ -189,13 +200,8 @@ ShowSettingsGUI() {
             SetTimer, CheckAndUpdatePorts, %checkInterval%
         }
 
-        ; Save to file
         SaveSettings()
-
-        ; Close GUI
         Gui, Settings:Destroy
-
-        ; Show confirmation
         TrayTip, Settings Saved, Settings have been updated successfully, 3, 1
     return
 
@@ -227,15 +233,12 @@ UpdateTrayMenu(piaPort, qbitPort) {
     static lastPiaText := "PIA Port: ---"
     static lastQbitText := "qBit Port: ---"
 
-    ; Build new menu text
     newPiaText := "PIA Port: " . (piaPort = "" ? "ERROR" : piaPort)
     newQbitText := "qBit Port: " . (qbitPort = "" ? "ERROR" : qbitPort)
 
-    ; Update PIA port menu item
     Menu, Tray, Rename, %lastPiaText%, %newPiaText%
     lastPiaText := newPiaText
 
-    ; Update qBit port menu item
     Menu, Tray, Rename, %lastQbitText%, %newQbitText%
     lastQbitText := newQbitText
 }
@@ -246,7 +249,6 @@ MenuHandler:
     if (A_ThisMenuItem = "Check Ports Now") {
         CheckAndUpdatePorts()
     } else if (A_ThisMenuItem = "Auto-Update: ON") {
-        ; Toggle auto-update
         autoUpdate := !autoUpdate
         if (autoUpdate) {
             Menu, Tray, Check, Auto-Update: ON
@@ -255,7 +257,6 @@ MenuHandler:
             Menu, Tray, Uncheck, Auto-Update: ON
             TrayTip, Auto-Update Disabled, You will be prompted before port changes, 3, 1
         }
-        ; Save the setting
         SaveSettings()
     } else if (A_ThisMenuItem = "Settings") {
         ShowSettingsGUI()
@@ -267,7 +268,6 @@ return
 CheckAndUpdatePorts() {
     global portPIA, portQbit
 
-    ; Get PIA port
     portPIA := GetPIAPort()
     if (portPIA = "") {
         UpdateTrayTooltip("ERROR: Could not get PIA port", "")
@@ -275,7 +275,6 @@ CheckAndUpdatePorts() {
         return
     }
 
-    ; Get qBittorrent port
     portQbit := GetQbitPort()
     if (portQbit = "") {
         UpdateTrayTooltip(portPIA, "ERROR: Could not read qBit config")
@@ -283,11 +282,9 @@ CheckAndUpdatePorts() {
         return
     }
 
-    ; Update tray menu and tooltip
     UpdateTrayTooltip(portPIA, portQbit)
     UpdateTrayMenu(portPIA, portQbit)
 
-    ; Check if ports match
     if (portPIA != portQbit) {
         PromptPortChange(portPIA, portQbit)
     }
@@ -297,28 +294,22 @@ GetPIAPort() {
     global piaPath
 
     try {
-        ; Check if file exists
         if (!FileExist(piaPath)) {
             MsgBox, 16, Error, PIA executable not found at:`n%piaPath%`n`nPlease configure the correct path in Settings.
             return ""
         }
 
-        ; Execute command and read output
         shell := ComObjCreate("WScript.Shell")
         exec := shell.Exec("""" . piaPath . """ get portforward")
         output := exec.StdOut.ReadAll()
-
-        ; Trim whitespace and newlines
         output := Trim(output, " `t`r`n")
 
-        ; Validate it's a number
         if output is not integer
         {
             MsgBox, 16, Error, Invalid PIA port received: %output%
             return ""
         }
 
-        ; Validate port range (1024-65535)
         if (output < 1024 || output > 65535) {
             MsgBox, 16, Error, PIA port out of valid range: %output%
             return ""
@@ -336,13 +327,11 @@ GetQbitPort() {
     try {
         configPath := A_AppData . "\qBittorrent\qBittorrent.ini"
 
-        ; Check if config file exists
         if (!FileExist(configPath)) {
             MsgBox, 16, Error, qBittorrent config not found at:`n%configPath%
             return ""
         }
 
-        ; Read port from config
         IniRead, port, %configPath%, BitTorrent, Session\Port, ERROR
 
         if (port = "ERROR") {
@@ -350,7 +339,6 @@ GetQbitPort() {
             return ""
         }
 
-        ; Validate it's a number
         if port is not integer
         {
             MsgBox, 16, Error, Invalid qBittorrent port in config: %port%
@@ -378,14 +366,12 @@ UpdateTrayTooltip(piaPort, qbitPort) {
 PromptPortChange(newPort, currentPort) {
     global autoUpdate
 
-    ; If autoUpdate is enabled, just update automatically
     if (autoUpdate) {
         TrayTip, Port Change Detected, Automatically updating qBittorrent from %currentPort% to %newPort%, 5, 1
         UpdateQbitPort(newPort)
         return
     }
 
-    ; Otherwise, prompt user
     MsgBox, 4, Port Mismatch Detected,
     (
     Port mismatch detected:
@@ -407,7 +393,6 @@ PromptPortChange(newPort, currentPort) {
     }
     IfMsgBox No
     {
-        ; User declined, do nothing
         return
     }
 }
@@ -418,30 +403,25 @@ UpdateQbitPort(newPort) {
     try {
         oldPort := portQbit
 
-        ; Close qBittorrent
         if (!CloseQbittorrent()) {
             TrayTip, Error, Failed to close qBittorrent, 5, 3
             return
         }
 
-        Sleep, 500  ; Wait for process to fully close
+        Sleep, 500
 
-        ; Update config file
         configPath := A_AppData . "\qBittorrent\qBittorrent.ini"
         IniWrite, %newPort%, %configPath%, BitTorrent, Session\Port
 
-        Sleep, 300  ; Wait for file write
+        Sleep, 300
 
-        ; Restart qBittorrent
         if (!StartQbittorrent()) {
             TrayTip, Error, Failed to restart qBittorrent, 5, 3
             return
         }
 
-        ; Update global variable
         portQbit := newPort
 
-        ; Show success message with timestamp
         FormatTime, timestamp, , yyyy-MM-dd HH:mm:ss
         TrayTip, Port Updated Successfully,
         (
@@ -450,10 +430,7 @@ UpdateQbitPort(newPort) {
         qBittorrent restarted
         ), 8, 1
 
-        ; Update tooltip
         UpdateTrayTooltip(portPIA, portQbit)
-
-        ; Log to file for debugging
         LogPortChange(oldPort, newPort, timestamp)
     }
     catch e {
@@ -462,23 +439,20 @@ UpdateQbitPort(newPort) {
 }
 
 LogPortChange(oldPort, newPort, timestamp) {
-    logFile := A_ScriptDir . "\port_changes.log"
+    global logPath
     logLine := timestamp . " - Port changed from " . oldPort . " to " . newPort . "`n"
-    FileAppend, %logLine%, %logFile%
+    FileAppend, %logLine%, %logPath%
 }
 
 CloseQbittorrent() {
     try {
-        ; Check if qBittorrent is running
         Process, Exist, qbittorrent.exe
         if (ErrorLevel = 0) {
-            return true  ; Already closed
+            return true
         }
 
-        ; Try graceful close first
         WinClose, ahk_exe qbittorrent.exe
 
-        ; Wait up to 5 seconds for graceful close
         timeout := 5000
         elapsed := 0
         while (elapsed < timeout) {
@@ -489,11 +463,9 @@ CloseQbittorrent() {
             elapsed += 100
         }
 
-        ; Force kill if still running
         Run, taskkill /F /IM qbittorrent.exe, , Hide
         Sleep, 500
 
-        ; Verify it's closed
         Process, Exist, qbittorrent.exe
         return (ErrorLevel = 0)
     }
@@ -506,13 +478,11 @@ StartQbittorrent() {
     global qbitPath
 
     try {
-        ; Check if file exists
         if (!FileExist(qbitPath)) {
             MsgBox, 16, Error, qBittorrent executable not found at:`n%qbitPath%`n`nPlease configure the correct path in Settings.
             return false
         }
 
-        ; Start qBittorrent
         Run, "%qbitPath%"
         return true
     }
