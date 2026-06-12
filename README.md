@@ -50,7 +50,7 @@ This tool **automatically detects port changes** and updates qBittorrent for you
 
 ## 🚀 Installation
 
-1. **Download** `PIA-Port-Forwarder.exe` from releases
+1. **Download** `PF_Watchdog.exe` from releases
 2. **Move the executable** to a permanent location (not Downloads folder)
 3. **Run it once** to configure settings
 4. **Configure Settings** (right-click tray icon → Settings):
