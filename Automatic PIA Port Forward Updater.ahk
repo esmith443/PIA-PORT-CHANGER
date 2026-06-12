@@ -31,6 +31,8 @@ LoadSettings() {
         FileCreateDir, %settingsDir%
     }
 
+    firstRun := !FileExist(settingsFile)
+
     IniRead, piaPath, %settingsFile%, Paths, PIAPath, C:\Program Files\Private Internet Access\piactl.exe
     IniRead, qbitPath, %settingsFile%, Paths, QbitPath, C:\Program Files\qBittorrent\qbittorrent.exe
 
@@ -45,6 +47,10 @@ LoadSettings() {
     IniRead, checkInterval, %settingsFile%, Settings, CheckInterval, 3600000
     IniRead, autoUpdate, %settingsFile%, Settings, AutoUpdate, 1
     autoUpdate := (autoUpdate = 1)
+
+    if (firstRun) {
+        SaveSettings()
+    }
 }
 
 SaveSettings() {
